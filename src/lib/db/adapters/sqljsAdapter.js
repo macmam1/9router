@@ -10,9 +10,88 @@ async function loadSql() {
   return SQL;
 }
 
+async function blobFetch(path, options = {}) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return null;
+  
+  const baseUrl = `https://blob.vercel-storage.com/v1/blob/${encodeURIComponent(path)}`;
+  const fetch = globalThis.fetch;
+  
+  if (!fetch) {
+    console.warn("[blob] fetch not available");
+    return null;
+  }
+  
+  try {
+    const response = await fetch(baseUrl, {
+      ...options,
+      headers: {
+        ...options.headers,
+        "Authorization": `Bearer ${token}`,
+      },
+    });
+    
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      throw new Error(`Blob HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    return response;
+  } catch (e) {
+    console.error("[blob] request failed:", e.message);
+    return null;
+  }
+}
+
+async function downloadFromBlob(path) {
+  const response = await blobFetch(path);
+  if (!response) return null;
+  
+  try {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return buffer;
+  } catch (e) {
+    console.error("[blob] download failed:", e.message);
+    return null;
+  }
+}
+
+async function uploadToBlob(path, data) {
+  const response = await blobFetch(path, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/octet-stream",
+    },
+    body: data,
+  });
+  
+  if (!response) return false;
+  
+  try {
+    return response.ok;
+  } catch (e) {
+    console.error("[blob] upload failed:", e.message);
+    return false;
+  }
+}
+
 export async function createSqlJsAdapter(filePath) {
   const SQLLib = await loadSql();
-  const buf = fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
+  
+  // Try to download database from Vercel Blob Storage
+  let buf = null;
+  const blobPath = process.env.BLOB_DB_PATH || "9router/data.sqlite";
+  const blobBuf = await downloadFromBlob(blobPath);
+  if (blobBuf) {
+    buf = blobBuf;
+    console.log(`[sqljs] loaded database from blob storage: ${blobBuf.length} bytes`);
+  } else if (fs.existsSync(filePath)) {
+    buf = fs.readFileSync(filePath);
+    console.log(`[sqljs] loaded database from local file: ${buf.length} bytes`);
+  } else {
+    console.log(`[sqljs] starting with fresh database`);
+  }
+  
   const db = new SQLLib.Database(buf);
   db.exec(PRAGMA_SQL);
   // Schema is created/synced by migrate.js after adapter init
@@ -25,6 +104,13 @@ export async function createSqlJsAdapter(filePath) {
     const data = db.export();
     fs.writeFileSync(filePath, Buffer.from(data));
     dirty = false;
+    
+    // Upload to Vercel Blob Storage
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      uploadToBlob(blobPath, Buffer.from(data)).catch((e) => {
+        console.error("[blob] async upload failed:", e.message);
+      });
+    }
   }
 
   function scheduleSave() {
