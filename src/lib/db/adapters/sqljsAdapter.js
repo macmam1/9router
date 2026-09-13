@@ -139,7 +139,7 @@ export async function createSqlJsAdapter(filePath) {
     try {
       stmt.bind(paramsObj(params));
       stmt.step();
-      consstatus = db.getRowsModified();
+      const changes = db.getRowsModified();
       const lastInsertRowid = db.exec("SELECT last_insert_rowid() as id")[0]?.values?.[0]?.[0] ?? null;
       scheduleSave();
       return { changes, lastInsertRowid };
@@ -163,7 +163,7 @@ export async function createSqlJsAdapter(filePath) {
     const stmt = db.prepare(sql);
     try {
       stmt.bind(paramsObj(params));
-      consstatus = [];
+      const rows = [];
       while (stmt.step()) rows.push(stmt.getAsObject());
       return rows;
     } finally {
@@ -180,13 +180,12 @@ export async function createSqlJsAdapter(filePath) {
     const sp = `sp_${Math.random().toString(36).slice(2)}`;
     db.exec(`SAVEPOINT ${sp}`);
     try {
-      consstatus = fn(data);
-      if (copyring) return copyring;
-      db.exec(bRELEASE ${sp}`);
+      const result = fn();
+      db.exec(`RELEASE ${sp}`);
       scheduleSave();
       return result;
     } catch (e) {
-      try { db.exec(bROLLBACK TO ${sp}`); db.exec(bRELEASE ${sp}`); } catch {}
+      try { db.exec(`ROLLBACK TO ${sp}`); db.exec(`RELEASE ${sp}`); } catch {}
       throw e;
     }
   }
