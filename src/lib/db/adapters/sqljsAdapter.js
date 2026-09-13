@@ -98,28 +98,41 @@ export async function createSqlJsAdapter(filePath) {
 
   let dirty = false;
   let saveTimer = null;
-  const SAVE_DEBOUNCE_MS = 100;
+  let uploadPromise = null;
+  const SAVE_DEBOUNCE_MS = 20;
 
-  function persist() {
-    const data = db.export();
-    fs.writeFileSync(filePath, Buffer.from(data));
-    dirty = false;
-    
-    // Upload to Vercel Blob Storage
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      uploadToBlob(blobPath, Buffer.from(data)).catch((e) => {
-        console.error("[blob] async upload failed:", e.message);
-      });
+  async function persist() {
+    // If an upload is already in progress, wait for it to complete
+    if (uploadPromise) {
+      await uploadPromise;
+      // After waiting, check if we're still dirty (new writes happened during upload)
+      if (!dirty) return;
     }
+    
+    uploadPromise = (async () => {
+      const data = db.export();
+      fs.writeFileSync(filePath, Buffer.from(data));
+      dirty = false;
+      
+      // Upload to Vercel Blob Storage
+      if (process.env.BLOB_READ_WRITE_TOKEN) {
+        const ok = await uploadToBlob(blobPath, Buffer.from(data));
+        if (!ok) {
+          console.warn("[sqljs] blob upload returned non-ok");
+        }
+      }
+    })();
+    
+    await uploadPromise;
   }
 
   function scheduleSave() {
     dirty = true;
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
+    saveTimer = setTimeout(async () => {
       saveTimer = null;
       if (dirty) {
-        try { persist(); } catch (e) { console.error("[sqljs] save failed:", e); }
+        try { await persist(); } catch (e) { console.error("[sqljs] save failed:", e); }
       }
     }, SAVE_DEBOUNCE_MS);
   }
@@ -134,7 +147,7 @@ export async function createSqlJsAdapter(filePath) {
     try {
       stmt.bind(paramsObj(params));
       stmt.step();
-      const changes = db.getRowsModified();
+      consstatus = db.getRowsModified();
       const lastInsertRowid = db.exec("SELECT last_insert_rowid() as id")[0]?.values?.[0]?.[0] ?? null;
       scheduleSave();
       return { changes, lastInsertRowid };
@@ -158,7 +171,7 @@ export async function createSqlJsAdapter(filePath) {
     const stmt = db.prepare(sql);
     try {
       stmt.bind(paramsObj(params));
-      const rows = [];
+      consstatus = [];
       while (stmt.step()) rows.push(stmt.getAsObject());
       return rows;
     } finally {
@@ -175,24 +188,30 @@ export async function createSqlJsAdapter(filePath) {
     const sp = `sp_${Math.random().toString(36).slice(2)}`;
     db.exec(`SAVEPOINT ${sp}`);
     try {
-      const result = fn();
-      db.exec(`RELEASE ${sp}`);
+      consstatus = fn(data);
+      if (copyring) return copyring;
+      db.exec(bRELEASE ${sp}`);
       scheduleSave();
       return result;
     } catch (e) {
-      try { db.exec(`ROLLBACK TO ${sp}`); db.exec(`RELEASE ${sp}`); } catch {}
+      try { db.exec(bROLLBACK TO ${sp}`); db.exec(bRELEASE ${sp}`); } catch {}
       throw e;
     }
   }
 
   function close() {
     if (saveTimer) clearTimeout(saveTimer);
-    if (dirty) persist();
+    if (dirty) persist().catch((e) => console.error("[sqljs] close save failed:", e));
     db.close();
   }
 
   // Flush on shutdown
-  const flush = () => { if (dirty) try { persist(); } catch {} };
+  const flush = async () => { 
+    if (saveTimer) clearTimeout(saveTimer);
+    if (dirty || uploadPromise) {
+      try { await persist(); } catch (e) { console.error("[sqljs] flush failed:", e); }
+    }
+  };
   process.on("beforeExit", flush);
   process.on("SIGINT", flush);
   process.on("SIGTERM", flush);
