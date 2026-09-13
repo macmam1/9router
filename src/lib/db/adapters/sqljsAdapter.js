@@ -102,28 +102,20 @@ export async function createSqlJsAdapter(filePath) {
   const SAVE_DEBOUNCE_MS = 20;
 
   async function persist() {
-    // If an upload is already in progress, wait for it to complete
     if (uploadPromise) {
       await uploadPromise;
-      // After waiting, check if we're still dirty (new writes happened during upload)
       if (!dirty) return;
     }
     
-    uploadPromise = (async () => {
-      const data = db.export();
-      fs.writeFileSync(filePath, Buffer.from(data));
-      dirty = false;
-      
-      // Upload to Vercel Blob Storage
-      if (process.env.BLOB_READ_WRITE_TOKEN) {
-        const ok = await uploadToBlob(blobPath, Buffer.from(data));
-        if (!ok) {
-          console.warn("[sqljs] blob upload returned non-ok");
-        }
-      }
-    })();
+    const data = db.export();
+    fs.writeFileSync(filePath, Buffer.from(data));
+    dirty = false;
     
-    await uploadPromise;
+    // Upload to Vercel Blob Storage
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      uploadPromise = uploadToBlob(blobPath, Buffer.from(data));
+      await uploadPromise;
+    }
   }
 
   function scheduleSave() {
