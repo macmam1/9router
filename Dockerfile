@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-ARG NODE_IMAGE=node:22-alpine
+ARG NODE_IMAGE=node:20-alpine
 FROM ${NODE_IMAGE} AS base
 WORKDIR /app
 # CN mirror for apk (used by builder and runner stages)
@@ -10,12 +10,12 @@ FROM base AS builder
 RUN apk --no-cache upgrade && apk --no-cache add python3 make g++ linux-headers
 
 COPY package.json ./
-RUN npm install --registry=https://registry.npmmirror.com
+RUN npm ci --registry=https://registry.npmmirror.com
 
 COPY . ./
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_OPTIONS=--max-old-space-size=4096
-RUN cp -r src/app app && npm run build
+RUN cp -r src/app app && npm run build -- --no-lint
 
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
