@@ -281,6 +281,10 @@ main() {
     log "Tailscale Auth Key: ${TAILSCALE_AUTH_KEY:+PROVIDED}${TAILSCALE_AUTH_KEY:-NOT SET}"
     log "Webhook: ${WEBHOOK_URL:-NOT SET}"
 
+    # Fix permissions (matches original entrypoint behavior)
+    chown -R node:node /app/data /app/data-home 2>/dev/null || true
+
+    # If the app itself is not PID 1, keep this shell alive so the container stays up.
     if ! curl -s -f "http://localhost:${APP_PORT}/api/health" > /dev/null 2>&1; then
         log_warn "9Router not detected on port ${APP_PORT}. If your studio does not auto-start it, start it now."
     else
@@ -311,10 +315,7 @@ main() {
     # Start keep-alive
     start_keepalive
 
-    # If the app itself is not PID 1, keep this shell alive so the container stays up.
-    if ! curl -s -f "http://localhost:${APP_PORT}/api/health" > /dev/null 2>&1; then
-        log_warn "9Router process not detected; entrypoint staying alive for logs/tunnels."
-    fi
+    log_warn "Entrypoint staying alive for logs/tunnels."
 
     wait -n || true
     tail -F /dev/null 2>/dev/null || sleep infinity
