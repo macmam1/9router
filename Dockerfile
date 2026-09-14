@@ -15,7 +15,7 @@ RUN npm install --registry=https://registry.npmmirror.com --no-optional
 COPY . ./
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_OPTIONS=--max-old-space-size=4096
-RUN cp -r src/app app && npm run build
+RUN mkdir -p app && cp -r src/app/* app/ && ls -la app/api/auth/login/ && npm run build
 
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
