@@ -7,16 +7,15 @@ RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories
 
 FROM base AS builder
 
-# Increase available memory for the build to avoid OOM/SIGKILL during Next.js build
 RUN apk --no-cache upgrade && apk --no-cache add python3 make g++ linux-headers
-RUN mkdir -p /swap && dd if=/dev/zero of=/swap/swapfile bs=1M count=2048 && mkswap /swap/swapfile && swapon /swap/swapfile
 
 COPY package.json ./
 RUN npm install --registry=https://registry.npmmirror.com
 
 COPY . ./
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN cp -r src/app app && NODE_OPTIONS="--max-old-space-size=4096" npm run build
+ENV NODE_OPTIONS=--max-old-space-size=4096
+RUN cp -r src/app app && npm run build
 
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
