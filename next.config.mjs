@@ -49,6 +49,11 @@ const nextConfig = {
         path: false,
       };
     }
+    // Ensure @ alias resolves from project root even when app router files live under /app
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      '@': join(projectRoot, 'src'),
+    };
     // Exclude non-source dirs from watcher to reduce inotify load
     config.watchOptions = {
       ...config.watchOptions,
