@@ -14,7 +14,7 @@ RUN npm install --registry=https://registry.npmmirror.com
 
 COPY . ./
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN ln -s src/app app && npm run build
+RUN cp -r src/app app && npm run build
 
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
